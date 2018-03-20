@@ -9,13 +9,13 @@
     <string>x86_64</string>
   </array>
   <key>CFBundleExecutable</key>
-  <string>Phantomx-QT</string>
+  <string>VizzoTop-QT</string>
 	<key>CFBundleIconFile</key>
-  <string>vizzotop.icns</string>
+  <string>VizzoTop.icns</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>1.3</string>
   <key>CFBundleName</key>
-  <string>Phantomx-QT</string>
+  <string>VizzoTop-QT</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleSignature</key>
