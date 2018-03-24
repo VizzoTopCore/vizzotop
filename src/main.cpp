@@ -43,8 +43,31 @@ set<pair<COutPoint, unsigned int> > setStakeSeen;
 CBigNum bnProofOfStakeLimit(~uint256(0) >> 20);
 CBigNum bnProofOfStakeLimitV2(~uint256(0) >> 34);
 
-unsigned int nStakeMinAge = 60 * 60; // 1 hours
+
+static unsigned int nStakeMinAgeV1 = 60 * 60; // 1 hours
+static unsigned int nStakeMinAgeV2 = 8 * 60 * 60; // 8 hours after block 11,000
+
 unsigned int nModifierInterval = 10 * 60; // time to elapse before new modifier is computed
+const int targetReadjustment_forkBlockHeight = 11000; //retargeting since 11,000 block
+
+bool IsProtocolMaturityV2(int nHeight)
+{
+    return(nHeight >= targetReadjustment_forkBlockHeight);
+}
+
+unsigned int GetStakeMinAge(int nHeight)
+{
+    if(IsProtocolMaturityV2(nHeight))
+        return nStakeMinAgeV2;
+    else
+        return nStakeMinAgeV1;
+}
+
+int GetMinPeerProtoVersion(int nHeight)
+{
+	return(IsProtocolMaturityV2(nHeight)? NEW_PROTOCOL_VERSION : MIN_PEER_PROTO_VERSION);
+}
+
 
 int nCoinbaseMaturity = 15;  //15
 CBlockIndex* pindexGenesisBlock = NULL;
@@ -1226,10 +1249,63 @@ const CBlockIndex* GetLastBlockIndex(const CBlockIndex* pindex, bool fProofOfSta
     return pindex;
 }
 
+
+
 int nTargetSpacing = 60; //60s
+
+unsigned int GetNextTargetRequiredV2(const CBlockIndex* pindexLast, bool fProofOfStake)
+{
+    CBigNum bnTargetLimit = fProofOfStake ? GetProofOfStakeLimit(pindexLast->nHeight) : Params().ProofOfWorkLimit();
+
+    if (pindexLast == NULL)
+        return bnTargetLimit.GetCompact(); // genesis block
+
+    const CBlockIndex* pindexPrev = GetLastBlockIndex(pindexLast, fProofOfStake);
+    if (pindexPrev->pprev == NULL)
+        return bnTargetLimit.GetCompact(); // first block
+    const CBlockIndex* pindexPrevPrev = GetLastBlockIndex(pindexPrev->pprev, fProofOfStake);
+    if (pindexPrevPrev->pprev == NULL)
+        return bnTargetLimit.GetCompact(); // second block
+
+    int64_t nActualSpacing = pindexPrev->GetBlockTime() - pindexPrevPrev->GetBlockTime();
+
+    if (nActualSpacing < 0) {
+	LogPrintf("Warning: spacing between blocks is negative. Resetting to target spacing.\n");
+        nActualSpacing = nTargetSpacing;
+    } else if (nActualSpacing < 1 && pindexLast->nHeight >= targetReadjustment_forkBlockHeight) {
+        // For a smooth transition to the new readjustment algorithm set actual spacing close to TARGET_SPACING for 100 blocks.
+	nActualSpacing = nTargetSpacing - 10;
+    } else if (nActualSpacing < 1 && pindexLast->nHeight >= (targetReadjustment_forkBlockHeight + 100)) {
+	nActualSpacing = 1;
+    }
+
+    // ppcoin: target change every block
+    // ppcoin: retarget with exponential moving toward target spacing
+    CBigNum bnNew;
+    bnNew.SetCompact(pindexPrev->nBits);
+    int64_t nInterval = 5; // Average over 5 blocks
+
+    if (pindexLast->nHeight < targetReadjustment_forkBlockHeight) {
+        // Allow different difficulty in old blocks before the fork.
+        nInterval = 1;
+    }
+
+    bnNew *= ((nInterval - 1) * nTargetSpacing + nActualSpacing + nActualSpacing);
+    bnNew /= ((nInterval + 1) * nTargetSpacing);
+
+    if (bnNew <= 0 || bnNew > bnTargetLimit) {
+	LogPrintf("Warning: new difficulty target out of range. Resetting to minimum difficulty.\n");
+        bnNew = bnTargetLimit;
+    }
+
+    return bnNew.GetCompact();
+}
 
 unsigned int GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfStake)
 {
+    if(IsProtocolMaturityV2(pindexLast->nHeight+1))
+	return GetNextTargetRequiredV2(pindexLast,fProofOfStake);
+
     CBigNum bnTargetLimit = fProofOfStake ? GetProofOfStakeLimit(pindexLast->nHeight) : Params().ProofOfWorkLimit();
 
     if (pindexLast == NULL)
@@ -1259,6 +1335,7 @@ unsigned int GetNextTargetRequired(const CBlockIndex* pindexLast, bool fProofOfS
 
     return bnNew.GetCompact();
 }
+
 
 bool CheckProofOfWork(uint256 hash, unsigned int nBits)
 {
@@ -2200,7 +2277,13 @@ bool CTransaction::GetCoinAge(CTxDB& txdb, uint64_t& nCoinAge) const
         CBlock block;
         if (!block.ReadFromDisk(txindex.pos.nFile, txindex.pos.nBlockPos, false))
             return false; // unable to read block of previous transaction
-        if (block.GetBlockTime() + nStakeMinAge > nTime)
+
+        CBlockLocator locator(block.GetHash());
+        int nHeight = locator.GetHeight();
+
+        assert(nHeight);
+
+        if (block.GetBlockTime() + GetStakeMinAge(nHeight) > nTime)
             continue; // only count coins meeting min age requirement
 
         int64_t nValueIn = txPrev.vout[txin.prevout.n].nValue;
@@ -2873,7 +2956,7 @@ bool LoadBlockIndex(bool fAllowNew)
 
     if (TestNet())
     {
-        nStakeMinAge = 1 * 60 * 60; // test net min age is 1 hour
+        nStakeMinAgeV1 = 1 * 60 * 60; // test net min age is 1 hour
         nCoinbaseMaturity = 10; // test maturity is 10 blocks
     }
 
@@ -3332,7 +3415,7 @@ bool static ProcessMessage(CNode* pfrom, string strCommand, CDataStream& vRecv, 
         CAddress addrFrom;
         uint64_t nNonce = 1;
         vRecv >> pfrom->nVersion >> pfrom->nServices >> nTime >> addrMe;
-        if (pfrom->nVersion < MIN_PEER_PROTO_VERSION)
+        if (pfrom->nVersion < GetMinPeerProtoVersion(nBestHeight))
         {
             // disconnect from peers older than this proto version
             LogPrintf("partner %s using obsolete version %i; disconnecting\n", pfrom->addr.ToString(), pfrom->nVersion);

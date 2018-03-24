@@ -30,13 +30,14 @@ static const int DATABASE_VERSION = 71500;
 // network protocol versioning
 //
 
-static const int PROTOCOL_VERSION = 69110;
+static const int NEW_PROTOCOL_VERSION = 69120;  //new version with modified maturity time and retargeting
+static const int PROTOCOL_VERSION = 69110;  //new version with modified maturity time and retargeting
 
 // intial proto version, to be increased after version/verack negotiation
 static const int INIT_PROTO_VERSION = 209;
 
 // disconnect from peers older than this proto version
-static const int MIN_PEER_PROTO_VERSION = 69100;
+static const int MIN_PEER_PROTO_VERSION = 69110;
 
 static const int MIN_INSTANTX_PROTO_VERSION = 69100;
 
