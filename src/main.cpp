@@ -2526,7 +2526,7 @@ bool CBlock::CheckBlock(bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig) c
 						CTxDestination address1;
 						ExtractDestination(payee, address1);
 						CBitcoinAddress address2(address1);
-						if (pindexBest->nHeight+1 < 210000) {
+						if (pindexBest->nHeight+1 < 25000) {
 						foundPaymentAmount = true;
 						foundPayee = true;
 						foundPaymentAndPayee = true;
